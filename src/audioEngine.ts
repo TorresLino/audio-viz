@@ -1,106 +1,93 @@
-export const LOW_CUTOFF = 500
-const MIN_SAMPLE_RATE = 4096
-
 export class AudioEngine {
-  private mainContext: AudioContext
-  private mainSource: MediaStreamAudioSourceNode | null = null
-  private mainOutput: MediaStreamAudioDestinationNode
+  private audioCtx: AudioContext;
+  private source: MediaStreamAudioSourceNode | null = null;
 
-  private mainAnalyser: AnalyserNode
-  private mainFilter: BiquadFilterNode
+  // Existing nodes for Waveform & General Viz
+  private analyser: AnalyserNode;
+  private filter: BiquadFilterNode;
 
-  private bassContext: AudioContext
-  private bassSource: MediaStreamAudioSourceNode
-
-  private bassAnalyser: AnalyserNode
-  private bassFilter: BiquadFilterNode
+  // NEW: Specialized branch for High-Detail Bass
+  private bassAnalyser: AnalyserNode;
+  private bassFilter: BiquadFilterNode;
 
   constructor() {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
-    this.mainContext = new AudioContextClass()
-    this.mainOutput = this.mainContext.createMediaStreamDestination()
+    this.audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
 
-    this.mainFilter = this.mainContext.createBiquadFilter()
-    this.mainFilter.type = 'lowpass'
-    this.mainFilter.frequency.value = 5000
+    // --- Waveform Branch ---
+    this.analyser = this.audioCtx.createAnalyser();
+    this.analyser.fftSize = 2048; // Standard size for snappy waveform visuals
+    this.analyser.smoothingTimeConstant = 0.6;
 
-    this.mainAnalyser = this.mainContext.createAnalyser()
-    this.mainAnalyser.fftSize = 2048
-    this.mainAnalyser.smoothingTimeConstant = 0.6
+    this.filter = this.audioCtx.createBiquadFilter();
+    this.filter.type = 'lowpass';
+    this.filter.frequency.value = 500;
 
-    this.mainFilter.connect(this.mainAnalyser)
+    // --- High-Detail Bass Branch (Option 3) ---
+    this.bassAnalyser = this.audioCtx.createAnalyser();
+    this.bassAnalyser.fftSize = 16384; // Massive buffer for high bass resolution
+    this.bassAnalyser.smoothingTimeConstant = 0.4;
 
-    const targetBassSampleRate = Math.max(MIN_SAMPLE_RATE, LOW_CUTOFF * 2)
-    this.bassContext = new AudioContextClass({ sampleRate: targetBassSampleRate })
-    this.bassSource = this.bassContext.createMediaStreamSource(this.mainOutput.stream)
-
-    this.bassFilter = this.bassContext.createBiquadFilter()
-    this.bassFilter.type = 'lowpass'
-    this.bassFilter.frequency.value = LOW_CUTOFF * 1.1
-    this.bassFilter.Q.value = 1
-
-    this.bassAnalyser = this.bassContext.createAnalyser()
-    this.bassAnalyser.fftSize = 1024
-    this.bassAnalyser.smoothingTimeConstant = 0.2
-
-    this.bassSource.connect(this.bassFilter)
-    this.bassFilter.connect(this.bassAnalyser)
+    this.bassFilter = this.audioCtx.createBiquadFilter();
+    this.bassFilter.type = 'lowpass';
+    this.bassFilter.frequency.value = 1000; // Focus resolution below 1kHz
   }
 
   public async setSource(stream: MediaStream) {
-    if (this.mainContext.state !== 'running') {
-      await this.mainContext.resume()
-    }
-    if (this.bassContext.state !== 'running') {
-      await this.bassContext.resume()
+    if (this.audioCtx.state !== 'running') {
+      await this.audioCtx.resume();
     }
 
-    if (this.mainSource) {
-      this.mainSource.disconnect()
-      this.mainSource = null
+    if (this.source) {
+      this.source.disconnect();
     }
 
-    this.mainSource = this.mainContext.createMediaStreamSource(stream)
+    this.source = this.audioCtx.createMediaStreamSource(stream);
 
-    this.mainSource.connect(this.mainContext.destination)
-    this.mainSource.connect(this.mainOutput)
-    this.mainSource.connect(this.mainFilter)
+    // 1. Path to Speakers (Clean)
+    this.source.connect(this.audioCtx.destination);
+
+    // 2. Path to Standard Waveform (Filtered)
+    this.source.connect(this.filter);
+    this.filter.connect(this.analyser);
+
+    // 3. Path to High-Detail Bass Branch (New)
+    this.source.connect(this.bassFilter);
+    this.bassFilter.connect(this.bassAnalyser);
 
     return new Promise<void>((resolve) => {
-      if (this.mainContext.state === 'running') resolve()
+      if (this.audioCtx.state === 'running') resolve();
       else {
-        this.mainContext.addEventListener('statechange', () => {
-          if (this.mainContext.state === 'running') resolve()
-        }, { once: true })
+        this.audioCtx.addEventListener('statechange', () => {
+          if (this.audioCtx.state === 'running') resolve();
+        }, { once: true });
       }
-    })
+    });
   }
 
+  // Used for the Waveform (keeps existing logic working)
   public getWaveformData(): Float32Array {
-    const dataArray = new Float32Array(this.mainAnalyser.fftSize)
-    this.mainAnalyser.getFloatTimeDomainData(dataArray)
-    return dataArray
+    const dataArray = new Float32Array(this.analyser.fftSize);
+    this.analyser.getFloatTimeDomainData(dataArray);
+    return dataArray;
   }
 
+  // Returns both datasets for the "Stitched" Spectrum
   public getMultiRateFrequencyData() {
-    const standardData = new Float32Array(this.mainAnalyser.frequencyBinCount)
-    const highDetailData = new Float32Array(this.bassAnalyser.frequencyBinCount)
+    const standardData = new Float32Array(this.analyser.frequencyBinCount);
+    const highDetailData = new Float32Array(this.bassAnalyser.frequencyBinCount);
 
-    this.mainAnalyser.getFloatFrequencyData(standardData)
-    this.bassAnalyser.getFloatFrequencyData(highDetailData)
+    this.analyser.getFloatFrequencyData(standardData);
+    this.bassAnalyser.getFloatFrequencyData(highDetailData);
 
-    return { standardData, highDetailData }
+    return { standardData, highDetailData };
   }
 
   public getSampleRate(): number {
-    return this.mainContext.sampleRate
-  }
-
-  public getLowSampleRate(): number {
-    return this.bassContext.sampleRate
+    return this.audioCtx.sampleRate;
   }
 
   public updateFilter(freq: number) {
-    this.mainFilter.frequency.setTargetAtTime(freq, this.mainContext.currentTime, 0.1)
+    // We update the main visual filter
+    this.filter.frequency.setTargetAtTime(freq, this.audioCtx.currentTime, 0.1);
   }
 }
