@@ -1,0 +1,23 @@
+.spectroscope-wrapper {
+  position: relative;
+  width: 800px;
+}
+
+.x-axis-labels {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  font-family: monospace;
+  font-size: 10px;
+  color: #ccc;
+  pointer-events: none;
+}
+
+.label-marker {
+  position: absolute;
+  transform: translateX(-50%);
+  text-align: center;
+}

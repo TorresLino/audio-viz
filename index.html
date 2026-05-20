@@ -1,0 +1,27 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+  <body>
+    <div id="app">
+      <div class="controls">
+        <button id="start">Start System Capture</button>
+      </div>
+
+      <div id="visualizer-container">
+        <div class="chart-block">
+          <h3>Waveform (Time Domain)</h3>
+          <canvas id="viz-wave" width="800" height="200"></canvas>
+        </div>
+
+        <div class="chart-block">
+          <h3>Spectroscope (Log Frequency Domain)</h3>
+          <div class="spectroscope-wrapper">
+            <canvas id="viz-spectrum" width="800" height="300"></canvas>
+            <div id="frequency-labels" class="x-axis-labels"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
